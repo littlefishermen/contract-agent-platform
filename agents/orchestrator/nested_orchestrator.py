@@ -406,9 +406,29 @@ class NestedOrchestrator:
             ui_success = ui_result.success if ui_result else False
             test_success = test_result.success if test_result else False
             
-            # 如果 Dev 失败且 fail_fast=True，抛出异常
+            # 如果 Dev 失败且 fail_fast=True，重试一次
             if self.workflow_config.fail_fast and not dev_success:
-                raise Exception(f"Dev阶段失败: {dev_result.error if dev_result else 'Unknown'}")
+                print(f"[DEBUG] Dev阶段首次失败: {dev_result.error if dev_result else 'Unknown'}", flush=True)
+                print(f"[DEBUG] 尝试重新运行 Dev Agent...", flush=True)
+                self.emit_event("agent_thinking", {
+                    "phase": "dev",
+                    "content": "⚠️ Dev Agent 首次执行失败，正在重试...",
+                    "step": 0,
+                    "total_steps": 1
+                })
+                # 重新运行 Dev 阶段
+                import asyncio
+                retry_result = await self.run_phase(AgentPhase.DEV, {
+                    **self._build_dev_ui_input(project_id, requirement, tech_design),
+                    "_phase": "dev"
+                })
+                if retry_result and retry_result.success:
+                    dev_result = retry_result
+                    dev_success = True
+                else:
+                    err_msg = retry_result.error if retry_result else 'Unknown'
+                    print(f"[DEBUG] Dev阶段重试也失败: {err_msg}", flush=True)
+                    raise Exception(f"Dev阶段失败(重试后): {err_msg}")
             
             # 只有在成功时才保存代码和更新 metadata
             if dev_success and dev_result and dev_result.data:
@@ -432,6 +452,9 @@ class NestedOrchestrator:
                                 # dict 格式: {"code": "...", "name": "..."} 或 {"source": "...", "name": "..."}
                                 code = item.get("code") or item.get("source") or str(item)
                                 fname = item.get("name") or item.get("filename") or f"Contract{i}.sol"
+                                # 清理路径：去掉可能的目录前缀（如 "contracts/" → ""）
+                                import os as _os
+                                fname = _os.path.basename(fname)
                                 # 确保 .sol 后缀
                                 if not fname.endswith('.sol'):
                                     fname += '.sol'

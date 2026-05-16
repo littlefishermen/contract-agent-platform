@@ -844,6 +844,7 @@ def parse_contract_text(raw_text: str, template_id: str) -> dict:
     import tempfile
     import json
     import re
+    import logging
 
     # 定义不同模板的字段期望
     field_defs = {
@@ -863,23 +864,39 @@ def parse_contract_text(raw_text: str, template_id: str) -> dict:
     }
     fields = field_defs.get(template_id, field_defs['custom'])
 
-    prompt = f"""你是一名合同信息提取专家。请从以下 OCR 识别出的合同文本中提取关键信息。
+    # 针对不同模板的字段提取提示
+    field_hints = {
+        'housing_lease': """
+- name: 合同名称（如"房屋租赁合同"）
+- landlord: 出租方/甲方姓名
+- tenant: 承租方/乙方姓名
+- property: 房屋地址
+- monthly_rent: 每月租金（数字，如5000）
+- deposit: 押金金额（数字，如5000）
+- start_date: 租赁开始日期（YYYY-MM-DD）
+- end_date: 租赁结束日期（YYYY-MM-DD）
+- payment_day: 每月租金支付日（数字，如1）"""
+    }
+    hints = field_hints.get(template_id, "")
+
+    prompt = f"""你是一名合同信息提取专家。请从以下OCR识别出的合同文本中提取关键信息。
 
 目标模板: {template_id}
 需要提取的字段: {', '.join(fields)}
+{hints}
 
 OCR 文本:
 ---
 {raw_text[:4000]}
 ---
 
-请根据文本内容，提取对应字段的值。返回纯 JSON 对象，key 为字段名，value 为提取的值。
-如果某个字段在文本中找不到对应信息，value 设为空字符串。
-日期格式统一为 YYYY-MM-DD。
-数字字段只返回数字。
+请根据文本内容，提取对应字段的值。只返回一个JSON对象，key为字段名，value为提取的值。
+- 如果字段在文本中找不到对应信息，value设为空字符串""
+- 日期格式统一为YYYY-MM-DD
+- 数字字段只返回数字（不含单位）
+- 不要任何markdown包裹、不要解释、不要其他文字
 
-示例输出格式:
-{{"name": "张三租房合同", "landlord": "张三", "tenant": "李四", ...}}"""
+示例: {{"name": "张三租房合同", "landlord": "张三", "tenant": "李四", "property": "上海市静安区", "monthly_rent": "5000", "deposit": "5000", "start_date": "2026-06-01", "end_date": "2027-05-31", "payment_day": "1"}}"""
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
         f.write(prompt)
@@ -895,12 +912,34 @@ OCR 文本:
         os.unlink(prompt_file)
 
         output = result.stdout.strip()
+
+        # 清理 Hermes banner（╭─ 之间的内容）
+        # 找到第一个JSON花括号
+        json_start = output.find('{')
+        if json_start != -1:
+            # 跳过banner，从第一个{开始
+            clean_output = output[json_start:]
+        else:
+            clean_output = output
+
+        # 移除markdown代码块包裹
+        if clean_output.startswith('```'):
+            lines = clean_output.split('\n')
+            clean_output = '\n'.join(lines[1:-1])
+
         # 提取 JSON
-        json_match = re.search(r'\{.*\}', output, re.DOTALL)
+        json_match = re.search(r'\{.*\}', clean_output, re.DOTALL)
         if json_match:
-            parsed = json.loads(json_match.group())
+            json_str = json_match.group()
+            # 清理控制字符
+            json_str = re.sub(r'[\x00-\x1f\x7f]', '', json_str)
+            parsed = json.loads(json_str)
             # 只保留需要的字段
-            return {k: parsed.get(k, '') for k in fields}
+            result_dict = {}
+            for k in fields:
+                val = parsed.get(k, '')
+                result_dict[k] = str(val) if val is not None else ''
+            return result_dict
         return {k: '' for k in fields}
     except Exception as e:
         print(f"[OCR] LLM parse error: {e}", flush=True)
