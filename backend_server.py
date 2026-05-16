@@ -238,6 +238,7 @@ def generate_nested():
             storage.update_step_status(project_id, 'tech', 'pending')
             storage.update_step_status(project_id, 'dev', 'pending')
             storage.update_step_status(project_id, 'ui', 'pending')
+            storage.update_step_status(project_id, 'test', 'pending')
 
             # 创建嵌套编排器并连接事件存储
             def make_event_callback(pid):
@@ -267,8 +268,9 @@ def generate_nested():
                         storage.save_confirmations(project_id, result.get('confirmations', []))
                     elif result.get('status') == 'completed':
                         storage.update_project_status(project_id, 'completed')
-                        storage.update_step_status(project_id, 'dev', 'completed')
-                        storage.update_step_status(project_id, 'ui', 'completed')
+                        storage.update_step_status(project_id, 'development', 'completed')
+                        storage.update_step_status(project_id, 'ui_development', 'completed')
+                        storage.update_step_status(project_id, 'demo', 'completed')
                         metadata = storage.get_metadata(project_id)
                         if metadata:
                             metadata['demo_url'] = result.get('demo_url', f'/demo/{project_id}')
@@ -377,13 +379,35 @@ def confirm_project(project_id):
                             metadata['demo_url'] = result.get('demo_url', f'/demo/{project_id}')
                             storage._save_metadata(project_id, metadata)
                     elif result.get('status') in ('partial', 'error'):
-                        # partial 或 error 都标记为失败
-                        storage.update_project_status(project_id, 'error')
-                        metadata = storage.get_metadata(project_id)
-                        if metadata:
-                            error_msg = result.get('error', 'Dev/UI 阶段失败')
-                            metadata['error'] = error_msg
-                            storage._save_metadata(project_id, metadata)
+                        # partial: Dev/UI 可能部分失败但仍可能有已保存的代码
+                        # 检查是否有可用的代码文件
+                        project_path = storage.get_project_path(project_id)
+                        has_contracts = (project_path / 'contract').exists() and any((project_path / 'contract').iterdir())
+                        has_frontend = (project_path / 'frontend').exists() and any((project_path / 'frontend').iterdir())
+                        has_backend = (project_path / 'backend').exists() and any((project_path / 'backend').iterdir())
+                        
+                        if has_contracts or has_frontend or has_backend:
+                            # 有已保存的代码 → 标记为 completed 但保留 warning
+                            storage.update_project_status(project_id, 'completed')
+                            if has_contracts:
+                                storage.update_step_status(project_id, 'development', 'completed')
+                            if has_frontend:
+                                storage.update_step_status(project_id, 'ui_development', 'completed')
+                            storage.update_step_status(project_id, 'demo', 'completed')
+                            metadata = storage.get_metadata(project_id)
+                            if metadata:
+                                metadata['demo_url'] = result.get('demo_url', f'/demo/{project_id}')
+                                if result.get('status') == 'partial':
+                                    metadata['warning'] = '部分 Agent 执行异常，代码已降级生成'
+                                storage._save_metadata(project_id, metadata)
+                        else:
+                            # 真正的失败
+                            storage.update_project_status(project_id, 'error')
+                            metadata = storage.get_metadata(project_id)
+                            if metadata:
+                                error_msg = result.get('error', 'Dev/UI 阶段失败')
+                                metadata['error'] = error_msg
+                                storage._save_metadata(project_id, metadata)
                 finally:
                     loop.close()
             except Exception as e:
@@ -551,6 +575,15 @@ def get_all_artifacts(project_id):
     metadata = storage.get_metadata(project_id)
     if metadata:
         artifacts['metadata'] = metadata
+
+    # 测试用例
+    test_file = project_path / "test" / "test_cases.json"
+    if test_file.exists():
+        try:
+            with open(test_file, 'r', encoding='utf-8') as f:
+                artifacts['test_cases'] = json.load(f)
+        except:
+            pass
 
     return jsonify({
         'project_id': project_id,
@@ -818,9 +851,10 @@ def parse_contract_text(raw_text: str, template_id: str) -> dict:
             'name', 'landlord', 'tenant', 'property', 'monthly_rent',
             'deposit', 'start_date', 'end_date', 'payment_day'
         ],
-        'employment': [
-            'name', 'employer', 'employee', 'position', 'salary',
-            'start_date', 'end_date'
+        'prepaid_card': [
+            'name', 'merchant', 'consumer', 'card_type', 'prepaid_amount',
+            'service_description', 'total_services', 'validity_period',
+            'refund_policy', 'start_date', 'end_date'
         ],
         'goods_trade': [
             'name', 'seller', 'buyer', 'goods', 'price', 'delivery_date'

@@ -927,7 +927,7 @@ def get_templates():
     return jsonify({
         "templates": [
             {"id": "housing_lease", "name": "住房租赁合同"},
-            {"id": "employment", "name": "雇佣合同"},
+            {'id': 'prepaid_card', 'name': '预付卡合同'},
             {"id": "goods_trade", "name": "商品交易合同"},
             {"id": "custom", "name": "自定义合同"}
         ]

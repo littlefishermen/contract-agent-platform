@@ -8,11 +8,14 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
+    "@types/react-syntax-highlighter": "^15.5.13",
     "axios": "^1.6.0",
     "next": "^14.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.7.5",
     "zustand": "^4.4.0"

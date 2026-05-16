@@ -6,7 +6,7 @@ AI Contract Platform - Nested Orchestrator
   Orchestrator (role=orchestrator) - 总指挥
   ├── Doc Agent (leaf) - 需求文档化
   ├── Tech Agent (leaf) - 可行性分析
-  └── Dev+UI Agents (parallel leaves) - 并行开发
+  └── Dev+UI+Test Agents (parallel leaves) - 并行开发与测试
 """
 
 import sys
@@ -36,6 +36,7 @@ class AgentPhase(Enum):
     TECH = "tech"         # 可行性分析
     DEV = "dev"           # 合约+后端开发
     UI = "ui"             # 前端开发
+    TEST = "test"         # 测试用例生成
 
 
 @dataclass
@@ -54,9 +55,9 @@ class WorkflowConfig:
     """工作流配置"""
     # 并行阶段：这些阶段可以同时执行
     parallel_phases: List[List[AgentPhase]] = field(default_factory=lambda: [
-        [AgentPhase.DOC],           # 阶段1: 串行 (Doc)
-        [AgentPhase.TECH],          # 阶段2: 串行 (Tech)
-        [AgentPhase.DEV, AgentPhase.UI]  # 阶段3: 并行 (Dev + UI)
+        [AgentPhase.DOC],                    # 阶段1: 串行 (Doc)
+        [AgentPhase.TECH],                   # 阶段2: 串行 (Tech)
+        [AgentPhase.DEV, AgentPhase.UI, AgentPhase.TEST]  # 阶段3: 并行 (Dev + UI + Test)
     ])
     
     # 失败策略
@@ -93,7 +94,8 @@ class NestedOrchestrator:
             AgentPhase.DOC: ['terminal', 'file', 'web'],
             AgentPhase.TECH: ['terminal', 'file', 'web'],
             AgentPhase.DEV: ['terminal', 'file', 'web'],
-            AgentPhase.UI: ['terminal', 'file', 'web']
+            AgentPhase.UI: ['terminal', 'file', 'web'],
+            AgentPhase.TEST: ['terminal', 'file', 'web']
         }
     
     def emit_event(self, event_type: str, data: Dict):
@@ -108,7 +110,7 @@ class NestedOrchestrator:
     
     async def run_full_pipeline(self, project_id: str, user_input: Dict) -> Dict:
         """
-        完整流水线: Doc → Tech → (Dev || UI)
+        完整流水线: Doc → Tech → (Dev || UI || Test)
         
         Args:
             project_id: 项目ID
@@ -194,29 +196,148 @@ class NestedOrchestrator:
                     "tech_design": tech_design
                 }
             
-            # ========== 阶段3: Dev + UI (并行) ==========
+            # ========== 阶段3: Dev + UI + Test (并行) ==========
             self.emit_event("phase_started", {
-                "phase": "dev_ui",
-                "message": "启动 Dev + UI Agents (并行)..."
+                "phase": "dev_ui_test",
+                "message": "启动 Dev + UI + Test Agents (并行)..."
             })
             
-            # 并行执行 Dev 和 UI
-            dev_result, ui_result = await self.run_parallel(
-                [AgentPhase.DEV, AgentPhase.UI],
+            # 并行执行 Dev, UI, Test
+            parallel_results = await self.run_parallel(
+                [AgentPhase.DEV, AgentPhase.UI, AgentPhase.TEST],
                 self._build_dev_ui_input(project_id, requirement, tech_design)
             )
+            
+            # 结果按 [DEV, UI, TEST] 顺序返回
+            dev_result = parallel_results[0]
+            ui_result = parallel_results[1]
+            test_result = parallel_results[2]
             
             # 处理结果
             dev_success = dev_result.success if dev_result else False
             ui_success = ui_result.success if ui_result else False
+            test_success = test_result.success if test_result else False
             
             if self.workflow_config.fail_fast and not dev_success:
                 raise Exception(f"Dev阶段失败: {dev_result.error if dev_result else 'Unknown'}")
             
+            # ======== 保存 Dev 产出（合约+后端） ========
+            if dev_success and dev_result and dev_result.data:
+                dev_data = dev_result.data
+                
+                # 保存合约代码
+                contracts_val = None
+                if hasattr(dev_data, 'contracts') and dev_data.contracts:
+                    contracts_val = dev_data.contracts
+                elif isinstance(dev_data, dict):
+                    contracts_val = dev_data.get("contracts") or dev_data.get("contract")
+                
+                if contracts_val:
+                    if isinstance(contracts_val, list):
+                        for i, item in enumerate(contracts_val):
+                            if isinstance(item, str):
+                                fname = f"Contract{i}.sol"
+                                self.storage.save_code(project_id, "contract", item, fname)
+                            elif isinstance(item, dict):
+                                code = item.get("code") or item.get("source") or str(item)
+                                fname = item.get("name") or item.get("filename") or f"Contract{i}.sol"
+                                # 确保 .sol 后缀
+                                if not fname.endswith('.sol'):
+                                    fname += '.sol'
+                                self.storage.save_code(project_id, "contract", code, fname)
+                    elif isinstance(contracts_val, str):
+                        self.storage.save_code(project_id, "contract", contracts_val, "MainContract.sol")
+                
+                # 保存后端代码
+                backend_val = None
+                if hasattr(dev_data, 'backend') and dev_data.backend:
+                    backend_val = dev_data.backend
+                elif isinstance(dev_data, dict):
+                    backend_val = dev_data.get("backend")
+                
+                if backend_val:
+                    if isinstance(backend_val, dict):
+                        self.storage.save_backend_project(project_id, backend_val)
+                    else:
+                        self.storage.save_backend_project(project_id, {"server.py": str(backend_val)})
+            
+            # ======== 保存 UI 产出（前端代码） ========
+            ui_has_content = False
+            if ui_success and ui_result and ui_result.data:
+                ui_data = ui_result.data
+                frontend_data = None
+                if hasattr(ui_data, 'frontend') and ui_data.frontend:
+                    frontend_data = ui_data.frontend
+                elif isinstance(ui_data, dict) and ui_data.get("frontend"):
+                    frontend_data = ui_data["frontend"]
+                
+                if frontend_data and isinstance(frontend_data, dict) and len(frontend_data) > 0:
+                    flat_files = {}
+                    for k, v in frontend_data.items():
+                        if isinstance(v, dict):
+                            for sub_k, sub_v in v.items():
+                                flat_files[f"{k}/{sub_k}"] = sub_v
+                        elif isinstance(v, str):
+                            flat_files[k] = v
+                    if flat_files:
+                        self.storage.save_frontend_project(project_id, flat_files)
+                        ui_has_content = True
+                    else:
+                        self.storage.save_frontend_project(project_id, self._generate_fallback_frontend(project_id, requirement))
+                        ui_has_content = True
+                elif frontend_data and isinstance(frontend_data, list):
+                    files_dict = {}
+                    for item in frontend_data:
+                        if isinstance(item, dict) and "filename" in item and "content" in item:
+                            files_dict[item["filename"]] = item["content"]
+                        elif isinstance(item, dict) and "path" in item and "content" in item:
+                            files_dict[item["path"]] = item["content"]
+                        elif isinstance(item, dict) and len(item) == 1:
+                            files_dict.update(item)
+                    if files_dict:
+                        self.storage.save_frontend_project(project_id, files_dict)
+                        ui_has_content = True
+                    else:
+                        self.storage.save_frontend_project(project_id, self._generate_fallback_frontend(project_id, requirement))
+                        ui_has_content = True
+                elif frontend_data:
+                    self.storage.save_frontend_project(project_id, self._generate_fallback_frontend(project_id, requirement))
+                    ui_has_content = True
+            
+            if not ui_has_content and dev_success:
+                self.storage.save_frontend_project(project_id, self._generate_fallback_frontend(project_id, requirement))
+                ui_has_content = True
+
+            # ======== 保存 Test 产出（测试用例） ========
+            if test_success and test_result and test_result.data:
+                test_data = test_result.data
+                test_cases = None
+                if isinstance(test_data, dict):
+                    test_cases = test_data.get("test_cases") or test_data.get("testSuite") or test_data
+                
+                if test_cases:
+                    # 保存为 JSON 文件
+                    test_file_path = self.storage.get_project_path(project_id) / "test" / "test_cases.json"
+                    test_file_path.parent.mkdir(parents=True, exist_ok=True)
+                    import json as _json
+                    with open(test_file_path, 'w', encoding='utf-8') as f:
+                        _json.dump(test_cases, f, ensure_ascii=False, indent=2)
+                    
+                    self.emit_event("artifact_ready", {
+                        "phase": "test",
+                        "artifact_type": "test_cases",
+                        "artifact_path": str(test_file_path),
+                        "message": "测试用例已生成"
+                    })
+            
+            # 更新 Test 步骤状态
+            self.storage.update_step_status(project_id, "test", "completed" if test_success else "skipped")
+
             self.emit_event("pipeline_completed", {
                 "project_id": project_id,
                 "dev_success": dev_success,
                 "ui_success": ui_success,
+                "test_success": test_success,
                 "demo_url": f"/demo/{project_id}"
             })
             
@@ -225,7 +346,8 @@ class NestedOrchestrator:
                 "requirement": requirement,
                 "tech_design": tech_design,
                 "dev_result": dev_result.data if dev_result else None,
-                "ui_result": ui_result.data if ui_result else None
+                "ui_result": ui_result.data if ui_result else None,
+                "test_result": test_result.data if test_result else None
             }
             
         except Exception as e:
@@ -240,7 +362,7 @@ class NestedOrchestrator:
     
     async def run_full_pipeline_after_confirmation(self, project_id: str, requirement: ContractRequirement, tech_design: TechDesign) -> Dict:
         """
-        确认后的流水线：跳过 Doc/Tech，直接运行 Dev + UI
+        确认后的流水线：跳过 Doc/Tech，直接运行 Dev + UI + Test
         
         Args:
             project_id: 项目ID
@@ -248,35 +370,41 @@ class NestedOrchestrator:
             tech_design: 已保存的技术设计（含用户确认的选择）
             
         Returns:
-            包含 Dev + UI 执行结果的字典
+            包含 Dev + UI + Test 执行结果的字典
         """
         self.current_project_id = project_id
         self.phase_results = {}
         
         self.emit_event("pipeline_continued", {
             "project_id": project_id,
-            "message": "确认完成，继续执行 Dev + UI 阶段..."
+            "message": "确认完成，继续执行 Dev + UI + Test 阶段..."
         })
         
         try:
             # 更新 storage 中的 tech_design（包含用户确认选项）
             self.storage.save_tech_design(project_id, tech_design)
             
-            # ========== 阶段3: Dev + UI (并行) ==========
+            # ========== 阶段3: Dev + UI + Test (并行) ==========
             self.emit_event("phase_started", {
-                "phase": "dev_ui",
-                "message": "启动 Dev + UI Agents (并行)..."
+                "phase": "dev_ui_test",
+                "message": "启动 Dev + UI + Test Agents (并行)..."
             })
             
-            # 并行执行 Dev 和 UI
-            dev_result, ui_result = await self.run_parallel(
-                [AgentPhase.DEV, AgentPhase.UI],
+            # 并行执行 Dev, UI, Test
+            parallel_results = await self.run_parallel(
+                [AgentPhase.DEV, AgentPhase.UI, AgentPhase.TEST],
                 self._build_dev_ui_input(project_id, requirement, tech_design)
             )
+            
+            # 结果按 [DEV, UI, TEST] 顺序返回
+            dev_result = parallel_results[0]
+            ui_result = parallel_results[1]
+            test_result = parallel_results[2]
             
             # 处理结果
             dev_success = dev_result.success if dev_result else False
             ui_success = ui_result.success if ui_result else False
+            test_success = test_result.success if test_result else False
             
             # 如果 Dev 失败且 fail_fast=True，抛出异常
             if self.workflow_config.fail_fast and not dev_success:
@@ -304,6 +432,9 @@ class NestedOrchestrator:
                                 # dict 格式: {"code": "...", "name": "..."} 或 {"source": "...", "name": "..."}
                                 code = item.get("code") or item.get("source") or str(item)
                                 fname = item.get("name") or item.get("filename") or f"Contract{i}.sol"
+                                # 确保 .sol 后缀
+                                if not fname.endswith('.sol'):
+                                    fname += '.sol'
                                 self.storage.save_code(project_id, "contract", code, fname)
                     elif isinstance(contracts_val, str):
                         self.storage.save_code(project_id, "contract", contracts_val, "MainContract.sol")
@@ -383,9 +514,31 @@ class NestedOrchestrator:
                 if frontend_dir.exists() and any(frontend_dir.iterdir()):
                     ui_has_content = True
 
-            # 更新 metadata（只有成功时才标记 completed）
+            # ======== 保存 Test 产出（测试用例） ========
+            if test_success and test_result and test_result.data:
+                test_data = test_result.data
+                test_cases = None
+                if isinstance(test_data, dict):
+                    test_cases = test_data.get("test_cases") or test_data.get("testSuite") or test_data
+                
+                if test_cases:
+                    test_file_path = self.storage.get_project_path(project_id) / "test" / "test_cases.json"
+                    test_file_path.parent.mkdir(parents=True, exist_ok=True)
+                    import json as _json
+                    with open(test_file_path, 'w', encoding='utf-8') as f:
+                        _json.dump(test_cases, f, ensure_ascii=False, indent=2)
+                    
+                    self.emit_event("artifact_ready", {
+                        "phase": "test",
+                        "artifact_type": "test_cases",
+                        "artifact_path": str(test_file_path),
+                        "message": "测试用例已生成"
+                    })
+
+            # 更新 metadata
             self.storage.update_step_status(project_id, "development", "completed" if dev_success else "failed")
             self.storage.update_step_status(project_id, "ui_development", "completed" if ui_has_content else "failed")
+            self.storage.update_step_status(project_id, "test", "completed" if test_success else "skipped")
             self.storage.update_step_status(project_id, "demo", "completed")
             self.storage.update_project_status(project_id, "completed" if (dev_success and ui_success) else "failed")
             
@@ -393,6 +546,7 @@ class NestedOrchestrator:
                 "project_id": project_id,
                 "dev_success": dev_success,
                 "ui_success": ui_success,
+                "test_success": test_success,
                 "demo_url": f"/demo/{project_id}"
             })
             
@@ -402,6 +556,7 @@ class NestedOrchestrator:
                 "tech_design": tech_design,
                 "dev_result": dev_result.data if dev_result else None,
                 "ui_result": ui_result.data if ui_result else None,
+                "test_result": test_result.data if test_result else None,
                 "demo_url": f"/demo/{project_id}"
             }
             
@@ -465,6 +620,7 @@ class NestedOrchestrator:
                     AgentPhase.TECH: ["正在评估技术可行性...", "正在设计合约架构...", "正在分析安全风险...", "正在生成技术方案..."],
                     AgentPhase.DEV: ["正在分析需求文档...", "正在编写 Solidity 合约...", "正在生成后端模拟器...", "正在集成合约代码..."],
                     AgentPhase.UI: ["正在分析交互流程...", "正在设计前端界面...", "正在编写 React 组件...", "正在生成前端代码..."],
+                    AgentPhase.TEST: ["正在解析需求和技术文档...", "正在设计测试场景...", "正在编写测试用例...", "正在生成测试报告..."],
                 }
                 prefixes = thinking_prefixes.get(phase, ["正在执行任务..."])
                 
@@ -532,6 +688,10 @@ class NestedOrchestrator:
                 
                 # 提取 JSON
                 json_str = self._extract_json_from_output(output)
+                
+                # 修复 JSON 字符串中的非法转义序列
+                # Solidity 代码中可能包含 \x, \u, \_ 等 Python json 不接受的转义
+                json_str = self._fix_json_escapes(json_str)
                 
                 # 解析为 Python 对象
                 agent_result = json.loads(json_str)
@@ -607,6 +767,50 @@ class NestedOrchestrator:
                 error=error_msg,
                 duration=duration
             )
+    
+    def _fix_json_escapes(self, json_str: str) -> str:
+        """修复 JSON 字符串中的非法转义序列
+
+        Solidity 代码中常见的引起问题的转义:
+          - \\x  → 十六进制转义（Solidity bytes）
+          - \\u  → Unicode 转义（如果后跟的4位不是合法十六进制）
+          - \\_  → Solidity 命名约定中的下划线
+          - 其他非标准转义
+
+        Python json.loads 会拒绝 "Invalid \\\\escape"。
+        此方法将非法转义序列的 \\ 替换为 \\\\，保留合法转义不变。
+        """
+        import re
+
+        # 合法的 JSON 转义字符集
+        valid_escapes = set('"\\\\/bfnrt')
+
+        def fix_escape(match):
+            """修复一个反斜杠转义"""
+            backslashes = match.group(1)  # 前面的反斜杠们
+            char = match.group(2)         # 反斜杠后的字符
+
+            # 如果前面有奇数个反斜杠(实际在转义)，且字符不是合法JSON转义
+            if len(backslashes) % 2 == 1:  # 实际转义的反斜杠
+                if char not in valid_escapes:
+                    # 非法转义: 将 \c 变成 \\c
+                    return backslashes + '\\\\' + char
+                elif char == 'u':
+                    # \\u 后面必须是 4 个十六进制字符
+                    rest = match.group(3) if len(match.groups()) > 2 else ''
+                    if rest and len(rest) >= 4 and not all(c in '0123456789abcdefABCDEF' for c in rest[:4]):
+                        # \\u 后不是合法十六进制 → 转义为 \\\\u
+                        return backslashes + '\\\\' + 'u' + rest
+            return match.group(0)  # 合法或不在字符串中
+
+        # 匹配反斜杠后跟任意字符的情况
+        result = re.sub(
+            r'(\\+)([bfnrt"\\/]|u([0-9a-fA-F]{0,4})?|[^\s"\\])',
+            fix_escape,
+            json_str
+        )
+
+        return result
     
     def _extract_json_from_output(self, output: str) -> str:
         """从 hermes chat 输出中提取 JSON
@@ -861,7 +1065,26 @@ class NestedOrchestrator:
 
 输出要求：
 - 返回 JSON: { "frontend": {...} }
-- 包含完整的源代码"""
+- 包含完整的源代码""",
+
+            AgentPhase.TEST: """作为Web3 Vibe Coding平台的测试智能体，根据需求文档和技术文档生成测试用例。
+
+## 任务
+1. 接收并解析需求文档和技术设计文档，提取功能点、接口定义、业务规则
+2. 为每个功能点设计测试场景：正常场景、边界场景、异常场景
+3. 生成结构化测试用例，按模块分组
+4. 识别Web3/智能合约特有测试场景：钱包连接、交易签名、合约调用、事件监听、Gas消耗
+5. 生成测试覆盖率统计和测试总结
+
+## 测试用例格式
+每个测试用例包含：用例ID、模块归属、功能名称、场景类型、描述、前置条件、测试步骤、预期结果、优先级、标签
+
+## 输出要求
+- 返回 JSON 格式: { "test_cases": [...], "summary": {"total": N, "by_module": {...}, "by_type": {...}, "coverage": "..."} }
+- 只返回纯 JSON，不包含 markdown 包裹
+- 测试用例按模块分组，每个模块至少覆盖功能、边界、异常三类场景
+- Web3相关测试用例需标注 "web3" 标签
+- 包含测试总结：总用例数、按模块统计、按类型统计、覆盖率评估"""
         }
         return prompts.get(phase, "执行指定任务")
     
@@ -929,6 +1152,10 @@ class NestedOrchestrator:
                     risks=result.get("risks", []),
                     confirmation_items=result.get("confirmation_items", [])
                 )
+            return result
+        
+        elif phase == AgentPhase.TEST:
+            # Test Agent 返回的就是测试用例 JSON，直接透传
             return result
         
         return result

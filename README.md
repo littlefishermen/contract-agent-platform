@@ -2,14 +2,16 @@
 
 **Web3 Vibe Coding Platform** — 让产品经理通过自然语言输入或上传合同照片，自动生成智能合约 Demo。
 
+---
+
 ## 架构
 
-4-Agent 流水线：
+5-Agent 流水线：
 
 ```
-用户输入 → Doc Agent → Tech Agent → Dev Agent + UI Agent (并行) → Demo
- OCR ↑        ↓              ↓               ↓               ↓
- 照片/PDF   需求文档        技术设计        合约+后端         前端页面
+用户输入 → Doc Agent → Tech Agent → (Dev + UI + Test) 并行 → Demo
+ OCR ↑        ↓              ↓              ↓                ↓
+ 照片/PDF   需求文档       技术设计      合约+后端+前端    测试用例+预览
 ```
 
 ### Agent 职责
@@ -20,6 +22,21 @@
 | **Tech Agent** | MiniMax-M2.7 | 可行性评估，合约架构设计，识别需用户确认的条款 |
 | **Dev Agent** | MiniMax-M2.7 | 生成 Solidity 合约 + Python Flask 后端模拟器 |
 | **UI Agent** | MiniMax-M2.7 | 生成 Next.js 前端交互页面 |
+| **Test Agent** 🆕 | MiniMax-M2.7 | 根据需求+技术文档生成结构化测试用例，前端可浏览 |
+
+### 流水线执行流程
+
+```
+phase 1 ─── Doc Agent (串行) ───→ 需求文档
+                ↓
+phase 2 ─── Tech Agent (串行) ──→ 技术设计（可含确认项）
+                ↓
+phase 3 ─── Dev Agent ──→ Solidity 合约 + 后端模拟器
+         ├── UI Agent  ──→ Next.js 前端页面
+         └── Test Agent ──→ 结构化测试用例（24+ 条）
+                ↓
+          Demo 预览页面（Tab 切换所有产物）
+```
 
 ## 技术栈
 
@@ -31,6 +48,56 @@
 | **Agent** | Hermes Agent (多 Profile 隔离) | — |
 | **存储** | 本地文件系统 | — |
 | **通信** | REST API + SSE (Server-Sent Events) | — |
+| **合约** | Solidity 0.8.19+ (OpenZeppelin) | — |
+
+## 核心功能
+
+### 实时生成
+
+- **SSE 实时流** — Agent 思考过程逐行推送
+- **Agent 思考日志** — 每个 Agent 的思考过程实时展示
+- **产物即时预览** — 每个 Agent 完成即展示其产物
+- **并行执行** — Dev + UI + Test 三 Agent 并行，大幅缩短生成时间
+
+### 产物预览（6 个 Tab）
+
+| Tab | 内容 | 渲染方式 |
+|---|---|---|
+| 🎬 **演示预览** | 交互式合约 Demo 页面 | iframe 嵌入 |
+| 📄 **需求文档** | 结构化需求（参与方、条款、可合约化分类） | Markdown 渲染 |
+| 📐 **技术设计** | 合约架构、模式、风险评估 | Markdown 渲染 |
+| 📜 **合约代码** | Solidity 源码（语法高亮 + 行号 + 文件切换） | SolidityViewer |
+| 🎨 **前端代码** | 生成的前端源码（文件切换 + 一键复制） | 源码面板 |
+| 🧪 **测试用例** 🆕 | 结构化测试用例（按模块分组 + 彩标分类） | Markdown 渲染 |
+
+### 测试用例展示 🆕
+
+Test Agent 自动生成包含以下维度的测试用例：
+
+- **场景类型**：🟢 normal / 🟡 boundary / 🔴 exception / 🟣 security
+- **优先级**：🔴 high / 🟡 medium / ⚪ low
+- **标签体系**：`web3` `contract` `library` `security` `pattern`
+- **概览统计**：总用例数、模块数、类型分布、优先级分布
+- **每用例详情**：前置条件、测试步骤（有序列表）、预期结果
+
+### OCR 合同识别
+
+支持上传合同照片/扫描件自动填写表单：
+
+- **引擎**: DashScope qwen-vl-ocr（阿里云百炼）
+- **预处理**: CLAHE 对比度增强 + 锐化
+- **形近字提示**: "三/子"、"6/0"、"已/己"等优化
+- **多页支持**: Ctrl+点击多选或拖拽，逐页识别后合并
+- **成本**: ≈ ¥0.007/张
+
+### 合同模板
+
+| 模板 | 适用场景 | 合约特点 |
+|---|---|---|
+| 🏠 住房租赁合同 | 房东-租客租赁协议 | 租金托管、押金锁定、时间锁、提前解约 |
+| 💳 预付卡合同 | 商家-消费者预付卡协议 | 资金托管、服务核销、有效期、退款策略 |
+| ⇄ 商品交易合同 | 买卖双方交易协议 | 资金托管、交付确认、争议仲裁 |
+| ✦ 自定义合同 | 上传合同文本或描述需求 | 按需分析、全自动合约化 |
 
 ## 快速启动
 
@@ -51,18 +118,12 @@ open http://localhost:3000
 ### 手动启动
 
 ```bash
-# 后端 (Waitress 生产服务器，支持 SSE 流式)
+# 后端 (Flask 开发服务器)
 cd contract-agent-platform
-source venv/bin/activate
-python3 -c "
-import sys
-sys.path.insert(0, '.')
-sys.path.insert(0, 'shared')
-sys.path.insert(0, 'agents')
-from backend_server import app
-from waitress import serve
-serve(app, host='0.0.0.0', port=5000, threads=20, channel_timeout=3600)
-"
+/usr/bin/python3.12 backend_server.py &
+
+# 验证后端
+curl http://localhost:5000/api/health
 
 # 前端 (另一个终端)
 cd contract-agent-platform/frontend
@@ -75,19 +136,6 @@ npm run dev
 bash ctl.sh stop
 ```
 
-## OCR 合同识别
-
-平台支持 **上传合同照片/扫描件** 自动识别关键信息填充表单：
-
-- **引擎**: DashScope qwen-vl-ocr（阿里云百炼）
-- **预处理**: CLAHE 对比度增强 + 锐化，提高识别准确率
-- **形近字提示**: 针对"三/子"、"6/0"、"已/己"等易混淆字符优化
-- **多页支持**: 可同时上传多张图片（Ctrl+点击多选或拖拽），自动合并所有页面文字
-- **格式**: PNG / JPG / WebP / PDF
-- **成本**: ≈ ¥0.007/张（7厘钱）
-
-照片上传后，qwen-vl-ocr 逐页识别文字 → MiniMax-M2.7 解析为结构化字段 → 自动填充表单。
-
 ## 项目结构
 
 ```
@@ -95,52 +143,61 @@ contract-agent-platform/
 ├── backend_server.py           # Flask API 入口 (SSE + Polling + OCR)
 ├── ctl.sh                      # 一键启停脚本
 ├── shared/
-│   ├── protocol.py             # 数据模型 (Term, ContractRequirement, TechDesign...)
+│   ├── protocol.py             # 数据模型 (AgentType, Term, TechDesign...)
 │   ├── storage.py              # 文件存储管理
-│   └── events.py               # SSE 事件存储 (线程安全)
+│   └── events.py               # SSE 事件存储
 ├── agents/
 │   └── orchestrator/
-│       ├── orchestrator.py     # 旧版 Orchestrator (含 fallback)
-│       └── nested_orchestrator.py  # NestedOrchestrator (异步 4-Agent 流水线)
+│       ├── orchestrator.py     # 旧版 Orchestrator (fallback)
+│       └── nested_orchestrator.py  # NestedOrchestrator (5-Agent 异步流水线)
 ├── frontend/
 │   └── src/
 │       ├── store/index.ts      # Zustand 状态管理
 │       ├── styles/globals.css  # Future Minimalism 设计系统
-│       ├── utils.ts            # 工具函数 (时间格式化等)
+│       ├── components/
+│       │   ├── MarkdownView.tsx     # Markdown 渲染 (预览/源码切换)
+│       │   ├── SolidityViewer.tsx   # Solidity 语法高亮
+│       │   └── ArtifactPreview.tsx  # 产物预览容器
 │       └── pages/
-│           ├── index.tsx       # 主页面 (OCR上传 + SSE实时流 + 思考展示)
+│           ├── index.tsx       # 主页面 (OCR + SSE + 5-Agent 展示)
 │           ├── _document.tsx   # Geist 字体配置
 │           └── demo/[projectId].tsx  # Demo 交互页面
-└── storage/projects/           # 生成的项目文件
+├── storage/projects/           # 生成的项目文件
+└── assets/                     # 截图、素材
 ```
 
 ## 工作流程
 
-1. **选择模板** — 住房租赁/雇佣/商品交易/自定义
+1. **选择模板** — 住房租赁 / 预付卡 / 商品交易 / 自定义
 2. **填写需求** — 手动输入 或 **上传合同照片自动填充**
-3. **AI 生成** — 4-Agent 流水线实时展示思考过程
-   - 📄 Doc Agent → 生成需求文档
-   - 📐 Tech Agent → 生成技术设计
-   - ⚙️ Dev Agent → 生成合约 + 后端代码
-   - 🎨 UI Agent → 生成前端页面
+3. **AI 生成** — 5-Agent 流水线实时展示思考过程
+   - 📄 Doc Agent → 提取条款，生成需求文档
+   - 📐 Tech Agent → 合约架构设计，识别确认项
+   - ⚙️ Dev Agent → Solidity 合约 + 后端模拟器
+   - 🎨 UI Agent → Next.js 前端交互页面
+   - 🧪 Test Agent → 结构化测试用例集合
 4. **确认条款** — 对条件可合约化的条款进行选择确认
-5. **Demo** — 交互式合约 Demo 页面
-
-## 实时特性
-
-- **SSE 实时流** — Agent 思考过程逐行推送
-- **Agent 思考日志** — 实时展示每个 Agent 的思考过程
-- **产物预览** — 每个 Agent 完成即展示其产物（需求文档/技术设计/代码）
-- **心跳保活** — SSE 连接自动心跳，浏览器自动重连
-- **OCR 识别** — 上传合同照片自动提取关键信息（多页支持）
+5. **Demo** — 6 个 Tab 切换浏览所有产物
 
 ## 设计系统
 
 - **风格**: Future Minimalism（未来极简）
 - **配色**: 雾白 `#FAFAFA` / 纯白 `#FFFFFF` / 电光蓝 `#2563EB`
 - **渐变**: 紫 `#8B5CF6` → 青 `#06B6D4`
-- **字体**: Geist Sans + Geist Mono（Vercel）
-- **圆角**: 锐利 2-6px（精密工具感）
+- **字体**: Geist Sans + Geist Mono
+- **圆角**: 锐利 2-6px / 精密卡片 22px
+- **磨砂玻璃**: 毛玻璃层次 + slate 文字层级
+
+## 近期更新
+
+### v1.2.0 — Test Agent 集成 + 稳定性修复
+
+- **🆕 Test Agent** — 第 5 个 Agent，与 Dev/UI 并行执行，自动生成 24+ 条结构化测试用例
+- **🆕 测试用例前端展示** — 6 个产物 Tab，按模块/场景/优先级分组，彩色徽章渲染
+- **🐛 Dev Agent JSON 转义修复** — 修复 Solidity 代码中 `\x`、`\_` 等非法转义导致 Agent 崩溃的问题
+- **🐛 代码保存修复** — `run_full_pipeline` 未调用 `save_code()` 导致生成的代码不保存
+- **🐛 Step key 不匹配** — `run_nested_pipeline` 中 step key 名称不一致修正
+- **🐛 合约文件后缀** — Solidity 文件自动补 `.sol` 后缀
 
 ## 许可证
 

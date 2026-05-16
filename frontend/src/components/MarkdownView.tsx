@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import type { Components } from 'react-markdown';
 
 // ============================================================
@@ -216,6 +217,7 @@ export default function MarkdownView({ content, minHeight, maxHeight, className 
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
             components={MarkdownComponents}
           >
             {content}

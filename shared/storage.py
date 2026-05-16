@@ -58,6 +58,7 @@ class ProjectStorage:
                 "tech_design": {"status": "pending", "completed_at": None},
                 "development": {"status": "pending", "completed_at": None},
                 "ui_development": {"status": "pending", "completed_at": None},
+                "test": {"status": "pending", "completed_at": None},
                 "demo": {"status": "pending", "completed_at": None}
             },
             "confirmations": []

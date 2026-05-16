@@ -10,7 +10,7 @@ import SolidityViewer from '@/components/SolidityViewer';
 // ============================================================
 const TEMPLATES: Template[] = [
   { id: 'housing_lease', name: '住房租赁合同', description: '房东与租客之间的住房租赁协议', icon: '⌂' },
-  { id: 'employment', name: '雇佣合同', description: '雇主与员工之间的雇佣协议', icon: '⚡' },
+  { id: 'prepaid_card', name: '预付卡合同', description: '商家与消费者之间的预付卡服务协议', icon: '💳' },
   { id: 'goods_trade', name: '商品交易合同', description: '买卖双方之间的商品交易协议', icon: '⇄' },
   { id: 'custom', name: '自定义合同', description: '上传合同文本或直接描述需求', icon: '✦' },
 ];
@@ -21,7 +21,8 @@ const AGENT_CONFIG = [
   { key: 'doc',  label: '文档 Agent',  color: 'var(--agent-doc)' },
   { key: 'tech', label: '技术 Agent',  color: 'var(--agent-tech)' },
   { key: 'dev',  label: '开发 Agent',  color: 'var(--agent-dev)' },
-  { key: 'ui',   label: 'UI Agent',   color: 'var(--agent-ui)' },
+  { key: 'ui',   label: 'UI Agent',    color: 'var(--agent-ui)' },
+  { key: 'test', label: '测试 Agent',  color: 'var(--agent-test)' },
 ];
 
 // ============================================================
@@ -123,7 +124,7 @@ const s = {
     opacity: status === 'idle' && !isActive ? 0.55 : 1,
     boxShadow: isActive ? 'var(--shadow-cta)' : 'none',
   } as React.CSSProperties),
-  statusDot: (status: string) => ({
+  statusDot: (status: string, color: string) => ({
     width: '8px', height: '8px', borderRadius: '50%',
     background: status === 'completed' ? 'var(--status-completed)' :
                 status === 'running' ? color :
@@ -313,6 +314,7 @@ export default function HomePage() {
         borderBottom: '1px solid var(--header-border)',
         boxShadow: '0 1px 0 rgba(255, 255, 255, 0.85) inset',
         padding: 'var(--space-4) var(--space-6)',
+        marginBottom: 'clamp(40px, 8vw, 88px)',
       }}>
         <div style={{ maxWidth: '1080px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -369,10 +371,10 @@ function TemplateSelector({ templates, onSelect }: { templates: Template[]; onSe
   return (
     <div className="animate-slideUp">
       <div style={{ textAlign: 'center', marginBottom: 'var(--space-10)' }}>
-        <h2 style={{ fontSize: 'var(--fs-2xl)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.04em', marginBottom: '8px', lineHeight: 1.05 }}>
+        <h2 style={{ fontSize: 'var(--fs-3xl)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.04em', marginBottom: '14px', lineHeight: 1.05 }}>
           选择合同模板
         </h2>
-        <p style={{ fontSize: 'var(--fs-base)', color: 'var(--text-tertiary)' }}>选择一个模板开始生成智能合约</p>
+        <p style={{ fontSize: '16px', lineHeight: 1.65, color: 'var(--text-secondary)', maxWidth: '46ch', margin: '0 auto' }}>选择一个模板开始生成智能合约</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
         {templates.map((t, i) => (
@@ -477,10 +479,12 @@ function RequirementForm({ template, formData, onUpdate, onBack, onSubmit }: {
       { id: 'start_date', label: '租期开始', type: 'date' }, { id: 'end_date', label: '租期结束', type: 'date' },
       { id: 'payment_day', label: '每月租金支付日', type: 'number' },
     ];
-    if (template.id === 'employment') return [
-      { id: 'name', label: '项目名称', type: 'text' }, { id: 'employer', label: '雇主名称', type: 'text' },
-      { id: 'employee', label: '员工姓名', type: 'text' }, { id: 'position', label: '职位', type: 'text' },
-      { id: 'salary', label: '月薪(元)', type: 'number' }, { id: 'start_date', label: '合同开始', type: 'date' },
+    if (template.id === 'prepaid_card') return [
+      { id: 'name', label: '项目名称', type: 'text' }, { id: 'merchant', label: '商家名称', type: 'text' },
+      { id: 'consumer', label: '消费者姓名', type: 'text' }, { id: 'card_type', label: '预付卡类型', type: 'text' },
+      { id: 'prepaid_amount', label: '预付金额(元)', type: 'number' }, { id: 'service_description', label: '商品/服务描述', type: 'text' },
+      { id: 'total_services', label: '服务总次数', type: 'number' }, { id: 'validity_period', label: '有效期(月)', type: 'number' },
+      { id: 'refund_policy', label: '退款条款', type: 'text' }, { id: 'start_date', label: '合同开始', type: 'date' },
       { id: 'end_date', label: '合同结束', type: 'date' },
     ];
     if (template.id === 'goods_trade') return [
@@ -618,7 +622,7 @@ function GenerationView({ agentStatuses, eventLogs, agentThoughts, agentArtifact
             <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--status-completed)', boxShadow: '0 0 12px rgba(52, 211, 153, 0.65)', animation: 'glowPulse 2s ease-in-out infinite' }} />
             <h2 style={{ fontSize: 'var(--fs-xl)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.4px' }}>AI 正在生成中</h2>
           </div>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: 'var(--fs-base)' }}>{isLoading ? 'Agent 正在实时协作生成您的合约' : '等待开始...'}</p>
+          <p style={{ fontSize: '16px', lineHeight: 1.65, color: 'var(--text-secondary)', maxWidth: '46ch', margin: '0 auto' }}>{isLoading ? 'Agent 正在实时协作生成您的合约' : '等待开始...'}</p>
         </div>
 
         {/* Agent 状态 — 渐变药丸 */}
@@ -626,7 +630,7 @@ function GenerationView({ agentStatuses, eventLogs, agentThoughts, agentArtifact
           {agentStatuses.filter(a => a.agent !== 'orchestrator').map((st) => (
             <button key={st.agent} onClick={() => setActiveAgent(st.agent)}
               style={s.agentPill(activeAgent === st.agent, getColor(st.agent), st.status)}>
-              <span style={s.statusDot(st.status)} /><span>{getLabel(st.agent)}</span>
+              <span style={s.statusDot(st.status, getColor(st.agent))} /><span>{getLabel(st.agent)}</span>
               {st.status === 'completed' && <span style={{ fontSize: '12px', opacity: 0.7 }}>✓</span>}
               {st.status === 'failed' && <span style={{ fontSize: '12px' }}>✕</span>}
             </button>
@@ -638,7 +642,7 @@ function GenerationView({ agentStatuses, eventLogs, agentThoughts, agentArtifact
           {/* 思考日志 */}
           <div style={{ ...s.panel, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
             <div style={{ padding: '12px var(--space-4)', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{getLabel(activeAgent)} 思考</span>
+              <span style={{ fontSize: '14px', fontWeight: 700, color: 'rgba(15, 23, 42, 0.48)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{getLabel(activeAgent)} 思考</span>
               <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-quaternary)', fontFamily: 'var(--font-mono)' }}>{(agentThoughts[activeAgent] || []).length} logs</span>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-3)', maxHeight: '420px' }}>
@@ -650,8 +654,8 @@ function GenerationView({ agentStatuses, eventLogs, agentThoughts, agentArtifact
                   const isAction = thought.startsWith('正在') || thought.startsWith('✅') || thought.startsWith('📄') || thought.startsWith('⚙️');
                   return <div key={i} style={{ padding: '6px 10px', marginBottom: '3px', borderRadius: 'var(--radius-sm)',
                     background: isLatest ? 'var(--gradient-subtle)' : 'transparent',
-                    fontSize: isAction ? 'var(--fs-base)' : 'var(--fs-sm)', lineHeight: '1.6',
-                    color: isLatest ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                    fontSize: isAction ? '14px' : '13px', lineHeight: '1.55',
+                    color: isLatest ? 'var(--text-primary)' : 'var(--text-secondary)',
                     fontFamily: isAction ? 'var(--font-sans)' : 'var(--font-mono)',
                     borderLeft: `2px solid ${getColor(activeAgent)}`,
                     whiteSpace: 'pre-wrap', wordBreak: 'break-word', transition: 'all 0.2s',
@@ -666,7 +670,7 @@ function GenerationView({ agentStatuses, eventLogs, agentThoughts, agentArtifact
           {showArtifact && agentArtifacts[showArtifact] && (
             <div style={{ ...s.panel, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
               <div style={{ padding: '12px var(--space-4)', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{getLabel(showArtifact)} 产物</span>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: 'rgba(15, 23, 42, 0.48)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{getLabel(showArtifact)} 产物</span>
                 <button onClick={() => setShowArtifact(null)} style={{ background: 'none', border: 'none', color: 'var(--text-quaternary)', cursor: 'pointer', fontSize: '16px', padding: '2px 4px', borderRadius: 'var(--radius-sm)' }}
                   onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-quaternary)'; }}>✕</button>
               </div>
@@ -724,11 +728,11 @@ function GenerationView({ agentStatuses, eventLogs, agentThoughts, agentArtifact
 // ============================================================
 // Demo 视图 — Tab 切换全量产物
 // ============================================================
-type ArtifactTab = 'demo' | 'requirement' | 'tech_design' | 'contract' | 'frontend';
+type ArtifactTab = 'demo' | 'requirement' | 'tech_design' | 'contract' | 'frontend' | 'test_cases';
 const ARTIFACT_TABS: { key: ArtifactTab; label: string }[] = [
   { key: 'demo', label: '演示预览' }, { key: 'requirement', label: '需求文档' },
   { key: 'tech_design', label: '技术设计' }, { key: 'contract', label: '合约代码' },
-  { key: 'frontend', label: '前端代码' },
+  { key: 'frontend', label: '前端代码' }, { key: 'test_cases', label: '测试用例' },
 ];
 
 function DemoView({ projectId, demoUrl, onReset, allArtifacts }: {
@@ -765,7 +769,7 @@ function DemoView({ projectId, demoUrl, onReset, allArtifacts }: {
             <span style={{ color: 'var(--status-completed)', fontSize: '22px', fontWeight: 600 }}>✓</span>
           </div>
           <h2 style={{ fontSize: 'var(--fs-xl)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.4px', marginBottom: '2px' }}>生成完成</h2>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: 'var(--fs-base)' }}>智能合约 Demo 已准备就绪</p>
+          <p style={{ fontSize: '16px', lineHeight: 1.65, color: 'var(--text-secondary)', maxWidth: '46ch', margin: '0 auto' }}>智能合约 Demo 已准备就绪</p>
         </div>
 
         {/* Tab 导航 — 始终显示全部 Tab */}
@@ -867,9 +871,88 @@ function ContentArea({ activeTab, allArtifacts, demoUrl }: { activeTab: Artifact
       return <CodeFilesPanel files={allArtifacts?.contract} codeType="solidity" />;
     case 'frontend':
       return <CodeFilesPanel files={allArtifacts?.frontend} codeType="generic" />;
+    case 'test_cases':
+      return <TestCasesView testCases={allArtifacts?.test_cases} />;
     default:
       return <EmptyTab />;
   }
+}
+
+// ============================================================
+// 测试用例视图 — 结构化 Markdown 渲染
+// ============================================================
+const statusBadge = (scenario: string) => {
+  const colors: Record<string, string> = {
+    normal: '#34d399', boundary: '#fbbf24', exception: '#f43f5e', security: '#a78bfa',
+  };
+  return `<span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;color:#fff;background:${colors[scenario]||'#94a3b8'}">${scenario}</span>`;
+};
+const priorityBadge = (p: string) => {
+  const colors: Record<string, string> = {
+    high: '#f43f5e', medium: '#fbbf24', low: '#94a3b8',
+  };
+  return `<span style="display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;color:#fff;background:${colors[p]||'#94a3b8'}">${p}</span>`;
+};
+
+function formatTestCasesAsMarkdown(testCases: any[]): string {
+  if (!testCases || !Array.isArray(testCases) || testCases.length === 0) return '*暂无测试用例*';
+
+  // Group by module
+  const groups: Record<string, any[]> = {};
+  testCases.forEach(tc => {
+    const mod = tc.module || '未分类';
+    if (!groups[mod]) groups[mod] = [];
+    groups[mod].push(tc);
+  });
+
+  // Summary stats
+  const byType: Record<string, number> = {};
+  const byPriority: Record<string, number> = {};
+  testCases.forEach(tc => {
+    byType[tc.scenario_type || 'other'] = (byType[tc.scenario_type || 'other'] || 0) + 1;
+    byPriority[tc.priority || 'medium'] = (byPriority[tc.priority || 'medium'] || 0) + 1;
+  });
+  const web3Count = testCases.filter(t => (t.tags || []).includes('web3')).length;
+
+  let md = `# 测试用例报告\n\n`;
+  md += `| 指标 | 数值 |\n|------|------|\n`;
+  md += `| 总用例数 | **${testCases.length}** |\n`;
+  md += `| 覆盖模块 | **${Object.keys(groups).length}** 个 |\n`;
+  md += `| Web3 相关 | **${web3Count}** 个 |\n`;
+  md += `| 场景类型 | ${Object.entries(byType).sort().map(([k,v]) => `${k}: ${v}`).join(', ')} |\n`;
+  md += `| 优先级分布 | ${Object.entries(byPriority).sort((a,b) => b[1]-a[1]).map(([k,v]) => `${k}: ${v}`).join(', ')} |\n\n`;
+  md += `---\n\n`;
+
+  // Per module
+  Object.entries(groups).forEach(([module, cases]) => {
+    md += `## ${module}\n\n`;
+    cases.forEach(tc => {
+      const steps = Array.isArray(tc.test_steps) ? tc.test_steps.map((s: string, i: number) => `${i+1}. ${s}`).join('\n') : tc.test_steps || '无';
+      const tags = Array.isArray(tc.tags) ? tc.tags.map((t: string) => `\`${t}\``).join(' ') : '';
+
+      md += `### ${tc.id}: ${tc.description}\n\n`;
+      md += `| 属性 | 值 |\n|------|------|\n`;
+      md += `| 场景类型 | ${statusBadge(tc.scenario_type || '-')} |\n`;
+      md += `| 优先级 | ${priorityBadge(tc.priority || 'medium')} |\n`;
+      md += `| 标签 | ${tags || '-'} |\n\n`;
+      md += `**前置条件**: ${tc.preconditions || '无'}\n\n`;
+      md += `**测试步骤**:\n${steps}\n\n`;
+      md += `**预期结果**: ${tc.expected_results || '无'}\n\n`;
+      md += `---\n\n`;
+    });
+  });
+
+  return md;
+}
+
+function TestCasesView({ testCases }: { testCases?: any[] }) {
+  if (!testCases || !Array.isArray(testCases) || testCases.length === 0) return <EmptyTab />;
+  const md = formatTestCasesAsMarkdown(testCases);
+  return (
+    <div style={{ ...s.panel, padding: 0, maxHeight: '520px', display: 'flex', flexDirection: 'column' }}>
+      <MarkdownView content={md} maxHeight="520px" />
+    </div>
+  );
 }
 
 function EmptyTab() {

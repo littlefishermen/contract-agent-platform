@@ -153,6 +153,7 @@ export const useStore = create<AppState>((set) => ({
     { agent: 'tech', status: 'idle', message: '等待', progress: 0 },
     { agent: 'dev', status: 'idle', message: '等待', progress: 0 },
     { agent: 'ui', status: 'idle', message: '等待', progress: 0 },
+    { agent: 'test', status: 'idle', message: '等待', progress: 0 },
   ],
   updateAgentStatus: (agent, statusUpdate) =>
     set((state) => ({
@@ -260,6 +261,7 @@ export const useStore = create<AppState>((set) => ({
       { agent: 'tech', status: 'idle', message: '等待', progress: 0 },
       { agent: 'dev', status: 'idle', message: '等待', progress: 0 },
       { agent: 'ui', status: 'idle', message: '等待', progress: 0 },
+      { agent: 'test', status: 'idle', message: '等待', progress: 0 },
     ],
     confirmations: [],
     requirementDoc: null,

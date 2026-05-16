@@ -17,6 +17,7 @@ class AgentType(Enum):
     TECH = "tech"
     DEV = "dev"
     UI = "ui"
+    TEST = "test"
 
 
 class TaskStatus(Enum):
@@ -175,12 +176,14 @@ class MessageTypes:
     START_TECH_DESIGN = "start_tech_design"
     START_DEVELOPMENT = "start_development"
     START_UI_DEVELOPMENT = "start_ui_development"
+    START_TEST = "start_test"
     
     # Agent -> Orchestrator
     DOCUMENT_COMPLETED = "document_completed"
     TECH_DESIGN_COMPLETED = "tech_design_completed"
     DEVELOPMENT_COMPLETED = "development_completed"
     UI_DEVELOPMENT_COMPLETED = "ui_development_completed"
+    TEST_COMPLETED = "test_completed"
     
     # Agent -> User (via Orchestrator)
     REQUEST_CONFIRMATION = "request_confirmation"
@@ -215,16 +218,27 @@ TEMPLATES = {
             {"type": "damage", "description": "损坏赔偿", "eligible": TermEligibility.CONDITIONAL},
         ]
     },
-    "employment": {
-        "name": "雇佣合同",
-        "description": "雇主与员工之间的雇佣协议",
+    "prepaid_card": {
+        "name": "预付卡合同",
+        "description": "商家与消费者之间的预付卡服务协议",
         "fields": [
-            {"id": "employer", "label": "雇主名称", "type": "text", "required": True},
-            {"id": "employee", "label": "员工姓名", "type": "text", "required": True},
-            {"id": "position", "label": "职位", "type": "text", "required": True},
-            {"id": "salary", "label": "月薪(元)", "type": "number", "required": True},
+            {"id": "merchant", "label": "商家名称", "type": "text", "required": True},
+            {"id": "consumer", "label": "消费者姓名", "type": "text", "required": True},
+            {"id": "card_type", "label": "预付卡类型", "type": "select", "required": True, "options": ["储值型", "次数型", "期限型"]},
+            {"id": "prepaid_amount", "label": "预付金额(元)", "type": "number", "required": True},
+            {"id": "service_description", "label": "商品/服务描述", "type": "text", "required": True},
+            {"id": "total_services", "label": "服务总次数", "type": "number", "required": False},
+            {"id": "validity_period", "label": "有效期(月)", "type": "number", "required": True},
+            {"id": "refund_policy", "label": "退款条款", "type": "text", "required": True},
             {"id": "start_date", "label": "合同开始", "type": "date", "required": True},
             {"id": "end_date", "label": "合同结束", "type": "date", "required": True},
+        ],
+        "default_terms": [
+            {"type": "escrow", "description": "资金托管", "eligible": TermEligibility.ELIGIBLE},
+            {"type": "service_delivery", "description": "服务交付确认", "eligible": TermEligibility.ELIGIBLE},
+            {"type": "refund", "description": "冷静期退款", "eligible": TermEligibility.ELIGIBLE},
+            {"type": "multi_sig", "description": "多签共管", "eligible": TermEligibility.CONDITIONAL},
+            {"type": "dispute", "description": "争议仲裁", "eligible": TermEligibility.CONDITIONAL},
         ]
     },
     "goods_trade": {
